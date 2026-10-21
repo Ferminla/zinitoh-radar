@@ -1,0 +1,5091 @@
+{
+  "name": "Zinitoh Radar v0 — RC3 v2.2 (PUBLIC ALPHA TEMPLATE — INACTIVE)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 9,12,15,18,20,23 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -5824,
+        1952
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000001",
+      "name": "RADAR SCAN SLOTS"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -5824,
+        2144
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000002",
+      "name": "RECOVERY HEARTBEAT"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "70696b69-664f-4371-8d04-5a52d89ece61",
+              "name": "wake_type",
+              "value": "scheduled",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -5600,
+        1952
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000003",
+      "name": "Scheduled Wake"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5a546086-da76-41ae-be97-a939f84c36eb",
+              "name": "wake_type",
+              "value": "heartbeat",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -5600,
+        2144
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000004",
+      "name": "Recovery Wake"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\n// Which path woke Radar?\nconst wakeType = input.wake_type || 'unknown';\n\n// Nigeria is UTC+1 year-round\nconst nowUtc = new Date();\nconst lagosNow = new Date(nowUtc.getTime() + 60 * 60 * 1000);\n\nconst year = lagosNow.getUTCFullYear();\nconst month = lagosNow.getUTCMonth();\nconst day = lagosNow.getUTCDate();\nconst hour = lagosNow.getUTCHours();\n\n// Radar's real scan times\nconst slots = [9, 12, 15, 18, 20, 23];\n\n// Find the latest scheduled slot that should already have happened\nlet slotHour = null;\n\nfor (const slot of slots) {\n  if (slot <= hour) {\n    slotHour = slot;\n  }\n}\n\n// Start with today's Lagos date\nlet slotDate = new Date(Date.UTC(year, month, day));\n\n// If it's before 9AM, the most recent owed slot was\n// yesterday at 11PM.\nif (slotHour === null) {\n  slotHour = 23;\n  slotDate.setUTCDate(slotDate.getUTCDate() - 1);\n}\n\nconst yyyy = slotDate.getUTCFullYear();\nconst mm = String(slotDate.getUTCMonth() + 1).padStart(2, '0');\nconst dd = String(slotDate.getUTCDate()).padStart(2, '0');\nconst hh = String(slotHour).padStart(2, '0');\n\nconst dateString = `${yyyy}-${mm}-${dd}`;\n\nconst intendedSlot =\n  `${dateString}T${hh}:00:00+01:00`;\n\nconst nowLagos =\n  `${String(lagosNow.getUTCFullYear())}-${String(\n    lagosNow.getUTCMonth() + 1\n  ).padStart(2, '0')}-${String(\n    lagosNow.getUTCDate()\n  ).padStart(2, '0')}T${String(\n    lagosNow.getUTCHours()\n  ).padStart(2, '0')}:${String(\n    lagosNow.getUTCMinutes()\n  ).padStart(2, '0')}:${String(\n    lagosNow.getUTCSeconds()\n  ).padStart(2, '0')}+01:00`;\n\nreturn [\n  {\n    json: {\n      wake_type: wakeType,\n      now_lagos: nowLagos,\n      intended_slot: intendedSlot,\n      slot_label: `${hh}:00`,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5152,
+        1728
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000005",
+      "name": "Determine Due Slot"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "intended_slot",
+              "keyValue": "={{ $json.intended_slot }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ 'run_' + $json.intended_slot.replace(/[^0-9]/g, '') }}",
+            "run_type": "={{ $json.wake_type === 'heartbeat' ? 'recovery' : 'scheduled' }}",
+            "intended_slot": "={{ $json.intended_slot }}",
+            "started_at": "={{ $json.now_lagos }}",
+            "status": "running",
+            "claim_token": "={{ $json.claim_token }}",
+            "completed_at": "",
+            "error_summary": ""
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "run_type",
+              "displayName": "run_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "intended_slot",
+              "displayName": "intended_slot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "started_at",
+              "displayName": "started_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "completed_at",
+              "displayName": "completed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "items_found",
+              "displayName": "items_found",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "items_new",
+              "displayName": "items_new",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "events_created",
+              "displayName": "events_created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "signals_selected",
+              "displayName": "signals_selected",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "error_summary",
+              "displayName": "error_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "claim_token",
+              "displayName": "claim_token",
+              "type": "string",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -4480,
+        1728
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000006",
+      "name": "Claim Scan"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "enabled",
+              "condition": "isTrue"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -4256,
+        1728
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000007",
+      "name": "Load Enabled Sources"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const source = $json;\n\nconst now = new Date();\n\nconst FIRST_RUN_LOOKBACK_HOURS = 24;\nconst OVERLAP_HOURS = 2;\nconst MAX_CATCHUP_HOURS = 48;\n\nlet catchupStart;\n\nif (source.last_success_at && Number.isFinite(Date.parse(source.last_success_at))) {\n  const lastSuccess = new Date(source.last_success_at);\n\n  catchupStart = new Date(\n    lastSuccess.getTime() -\n    OVERLAP_HOURS * 60 * 60 * 1000\n  );\n} else {\n  catchupStart = new Date(\n    now.getTime() -\n    FIRST_RUN_LOOKBACK_HOURS * 60 * 60 * 1000\n  );\n}\n\nconst maxStart = new Date(\n  now.getTime() -\n  MAX_CATCHUP_HOURS * 60 * 60 * 1000\n);\n\nif (catchupStart < maxStart) {\n  catchupStart = maxStart;\n}\n\nreturn {\n  json: {\n    ...source,\n    catchup_start: catchupStart.toISOString(),\n    catchup_end: now.toISOString(),\n    is_first_scan: !source.last_success_at\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3584,
+        1328
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000008",
+      "name": "Calculate Catch-up Window"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        -3360,
+        1328
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000009",
+      "name": "Fetch RSS Source",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const source =\n  $('Calculate Catch-up Window')\n    .itemMatching(0)\n    .json;\n\nif (!source?.source_id) {\n  throw new Error(\n    'Could not resolve linked source context'\n  );\n}\n\nconst windowStart = new Date(\n  source.catchup_start\n).getTime();\n\nconst windowEnd = new Date(\n  source.catchup_end\n).getTime();\n\nif (!Number.isFinite(windowStart)) {\n  throw new Error(\n    `Invalid catchup_start for ${source.source_id}`\n  );\n}\n\nif (!Number.isFinite(windowEnd)) {\n  throw new Error(\n    `Invalid catchup_end for ${source.source_id}`\n  );\n}\n\n\n// -------------------------\n// URL NORMALIZATION\n// -------------------------\n\nfunction cleanUrl(rawUrl) {\n  if (!rawUrl) return '';\n\n  try {\n    const url = new URL(rawUrl);\n\n    const trackingParams = [\n      'utm_source',\n      'utm_medium',\n      'utm_campaign',\n      'utm_term',\n      'utm_content',\n      'ref',\n      'source'\n    ];\n\n    for (const param of trackingParams) {\n      url.searchParams.delete(param);\n    }\n\n    url.hash = '';\n\n    return url.toString();\n  } catch {\n    return String(rawUrl);\n  }\n}\n\n\n// -------------------------\n// STABLE LOCAL HASH\n// -------------------------\n\nfunction stableHash64(input) {\n  let h1 = 2166136261;\n  let h2 = 2246822519;\n\n  for (let i = 0; i < input.length; i++) {\n    const c = input.charCodeAt(i);\n\n    h1 ^= c;\n    h1 = Math.imul(h1, 16777619);\n\n    h2 ^= c;\n    h2 = Math.imul(h2, 3266489917);\n  }\n\n  return (\n    (h1 >>> 0)\n      .toString(16)\n      .padStart(8, '0') +\n\n    (h2 >>> 0)\n      .toString(16)\n      .padStart(8, '0')\n  );\n}\n\n\n// -------------------------\n// NORMALIZE FEED ITEMS\n// -------------------------\n\nconst inputItems = $input.all();\nconst output = [];\nconst seenUids = new Set();\n\nfor (let i = 0; i < inputItems.length; i++) {\n  const entry = inputItems[i].json;\n\n  const publishedRaw =\n    entry.isoDate ||\n    entry.pubDate ||\n    entry.published ||\n    entry.updated ||\n    null;\n\n  if (!publishedRaw) {\n    continue;\n  }\n\n  const publishedTime =\n    new Date(publishedRaw).getTime();\n\n  if (!Number.isFinite(publishedTime)) {\n    continue;\n  }\n\n  // Outside this source's catch-up window\n  if (\n    publishedTime < windowStart ||\n    publishedTime > windowEnd\n  ) {\n    continue;\n  }\n\n\n  // -------------------------\n  // TITLE\n  // -------------------------\n\n  const title = String(\n    entry.title || ''\n  )\n    .replace(/\\s+/g, ' ')\n    .trim();\n\n  if (!title) {\n    continue;\n  }\n\n\n  // -------------------------\n  // URL\n  // -------------------------\n\n  const originalUrl =\n    entry.link ||\n    entry.guid ||\n    '';\n\n  const canonicalUrl =\n    cleanUrl(originalUrl);\n\n\n  // -------------------------\n  // EXTERNAL ID\n  // -------------------------\n\n  const externalId =\n    entry.guid ||\n    canonicalUrl ||\n    title;\n\n\n  // -------------------------\n  // EXCERPT\n  // -------------------------\n\n  const excerpt = String(\n    entry.contentSnippet ||\n    entry.content ||\n    entry.description ||\n    entry.summary ||\n    ''\n  )\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 1500);\n\n\n  // -------------------------\n  // HASHES\n  // -------------------------\n\n  const itemUid = stableHash64(\n    `${source.source_id}|${externalId}`\n  );\n\n  const contentHash = stableHash64(\n    [\n      title.toLowerCase(),\n      canonicalUrl,\n      excerpt\n    ].join('|')\n  );\n\n\n  // -------------------------\n  // OUTPUT\n  // -------------------------\n\n  if (seenUids.has(itemUid)) continue;\n  seenUids.add(itemUid);\n\n  output.push({\n    json: {\n      item_uid: itemUid,\n\n      source_id: source.source_id,\n      source_name: source.name,\n      category: source.category,\n\n      external_id:\n        String(externalId),\n\n      title,\n\n      url:\n        String(originalUrl || ''),\n\n      canonical_url:\n        canonicalUrl,\n\n      excerpt,\n\n      published_at:\n        new Date(\n          publishedTime\n        ).toISOString(),\n\n      fetched_at:\n        new Date().toISOString(),\n\n      content_hash:\n        contentHash,\n\n      status:\n        'new'\n    },\n\n    pairedItem: {\n      item: i\n    }\n  });\n}\n\n// A fetch containing no relevant dated articles is still a successful fetch.\n// Preserve one control item so the per-source loop can finish correctly.\nif (output.length === 0) {\n  return [{\n    json: { _radar_no_recent_items: true, source_id: source.source_id },\n    pairedItem: { item: 0 }\n  }];\n}\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3136,
+        1232
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000010",
+      "name": "Normalize + Window Filter"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "item_uid",
+              "keyValue": "={{ $json.item_uid }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "item_uid": "={{ $json.item_uid }}",
+            "source_id": "={{ $json.source_id }}",
+            "external_id": "={{ $json.external_id }}",
+            "title": "={{ $json.title }}",
+            "url": "={{ $json.url }}",
+            "canonical_url": "={{ $json.canonical_url }}",
+            "excerpt": "={{ $json.excerpt }}",
+            "published_at": "={{ $json.published_at }}",
+            "fetched_at": "={{ $json.fetched_at }}",
+            "content_hash": "={{ $json.content_hash }}",
+            "status": "={{ $json.status }}",
+            "filter_reason": "={{ $json.filter_reason }}",
+            "filtered_at": "={{ $json.filtered_at }}",
+            "category": "={{ $json.category }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "item_uid",
+              "displayName": "item_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source_id",
+              "displayName": "source_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "canonical_url",
+              "displayName": "canonical_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "excerpt",
+              "displayName": "excerpt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "published_at",
+              "displayName": "published_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "fetched_at",
+              "displayName": "fetched_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "content_hash",
+              "displayName": "content_hash",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "event_uid",
+              "displayName": "event_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "filter_reason",
+              "displayName": "filter_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "filtered_at",
+              "displayName": "filtered_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -2464,
+        1296
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000011",
+      "name": "Save New Item"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Runs ONCE after the source's normalized items have been saved\n// (or after the explicit no-recent-articles sentinel).\nconst records = $input.all().map(x => x.json);\nconst sourceIds = [...new Set(records.map(x => String(x.source_id || '').trim()).filter(Boolean))];\nif (sourceIds.length !== 1) {\n  throw new Error(`Expected exactly one source after saving; got: ${sourceIds.join(', ')}`);\n}\nconst now = new Date().toISOString();\nreturn [{\n  json: {\n    source_id: sourceIds[0],\n    last_attempt_at: now,\n    last_success_at: now,\n    consecutive_failures: 0,\n    next_retry_at: '',\n    last_error: '',\n    stored_items_this_batch: records.filter(x => x.item_uid).length\n  },\n  pairedItem: { item: 0 }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2240,
+        1232
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000012",
+      "name": "Source Fetch Succeeded"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "source_id",
+              "keyValue": "={{ $json.source_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "last_attempt_at": "={{ $json.last_attempt_at }}",
+            "last_success_at": "={{ $json.last_success_at }}",
+            "consecutive_failures": "={{ $json.consecutive_failures }}",
+            "next_retry_at": "={{ $json.next_retry_at }}",
+            "last_error": "={{ $json.last_error }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "source_id",
+              "displayName": "source_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "source_type",
+              "displayName": "source_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "enabled",
+              "displayName": "enabled",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_attempt_at",
+              "displayName": "last_attempt_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_success_at",
+              "displayName": "last_success_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "next_retry_at",
+              "displayName": "next_retry_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "consecutive_failures",
+              "displayName": "consecutive_failures",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_error",
+              "displayName": "last_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -2016,
+        1232
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000013",
+      "name": "Update Source Success"
+    },
+    {
+      "parameters": {
+        "jsCode": "const source =\n  $('Calculate Catch-up Window')\n    .itemMatching(0)\n    .json;\n\nif (!source?.source_id) {\n  throw new Error(\n    'Could not resolve linked source context'\n  );\n}\n\n\n// -------------------------\n// ERROR INPUT\n// -------------------------\n\nconst input =\n  $input.first()?.json || {};\n\nconst now =\n  new Date();\n\n\n// -------------------------\n// FAILURE COUNT\n// -------------------------\n\nconst previousFailures =\n  Number(\n    source.consecutive_failures || 0\n  );\n\nconst consecutiveFailures =\n  previousFailures + 1;\n\n\n// -------------------------\n// RETRY BACKOFF\n// -------------------------\n\nlet retryMinutes;\n\nif (consecutiveFailures === 1) {\n  retryMinutes = 5;\n\n} else if (consecutiveFailures === 2) {\n  retryMinutes = 15;\n\n} else if (consecutiveFailures === 3) {\n  retryMinutes = 60;\n\n} else {\n  retryMinutes = 180;\n}\n\nconst nextRetry =\n  new Date(\n    now.getTime() +\n    retryMinutes * 60 * 1000\n  );\n\n\n// -------------------------\n// ERROR MESSAGE\n// -------------------------\n\nlet errorMessage =\n  input.error?.message ||\n  input.message ||\n  input.error?.description ||\n  input.error ||\n  'Source fetch failed';\n\nif (\n  typeof errorMessage === 'object'\n) {\n  try {\n    errorMessage =\n      JSON.stringify(errorMessage);\n  } catch {\n    errorMessage =\n      'Source fetch failed';\n  }\n}\n\nerrorMessage =\n  String(errorMessage)\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 1000);\n\n\n// -------------------------\n// OUTPUT\n// -------------------------\n\nreturn [\n  {\n    json: {\n      source_id:\n        source.source_id,\n\n      enabled:\n        source.enabled === true,\n\n      last_attempt_at:\n        now.toISOString(),\n\n      // Do NOT change last_success_at\n      // when a fetch fails.\n\n      consecutive_failures:\n        consecutiveFailures,\n\n      next_retry_at:\n        nextRetry.toISOString(),\n\n      last_error:\n        errorMessage,\n\n      retry_minutes:\n        retryMinutes\n    },\n\n    pairedItem: {\n      item: 0\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3136,
+        1488
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000014",
+      "name": "Prepare Source Failure"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "source_id",
+              "keyValue": "={{ $json.source_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "last_attempt_at": "={{ $json.last_attempt_at }}",
+            "consecutive_failures": "={{ $json.consecutive_failures }}",
+            "next_retry_at": "={{ $json.next_retry_at }}",
+            "last_error": "={{ $json.last_error }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "source_id",
+              "displayName": "source_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "source_type",
+              "displayName": "source_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "enabled",
+              "displayName": "enabled",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_attempt_at",
+              "displayName": "last_attempt_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_success_at",
+              "displayName": "last_success_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "next_retry_at",
+              "displayName": "next_retry_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "consecutive_failures",
+              "displayName": "consecutive_failures",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_error",
+              "displayName": "last_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -2912,
+        1488
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000015",
+      "name": "Update Source Failure"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -4032,
+        1728
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000016",
+      "name": "Process Sources One by One"
+    },
+    {
+      "parameters": {
+        "operation": "rowExists",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "intended_slot",
+              "keyValue": "={{ $('Determine Due Slot').first().json.intended_slot }}"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "running"
+            },
+            {
+              "keyName": "claim_token",
+              "keyValue": "={{ $('Guard Active Run').first().json.claim_token }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -2016,
+        144
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000017",
+      "name": "Is Claimed Run Still Running?"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "intended_slot",
+              "keyValue": "={{ $('Determine Due Slot').first().json.intended_slot }}"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "running"
+            },
+            {
+              "keyName": "claim_token",
+              "keyValue": "={{ $('Guard Active Run').first().json.claim_token }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $('Count Source Outcomes').first().json.sources_failed > 0 ? ($('Count Source Outcomes').first().json.sources_succeeded > 0 ? 'partial_success' : 'failed') : ($('Count Source Outcomes').first().json.sources_skipped > 0 ? 'deferred' : 'success') }}",
+            "completed_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "run_type",
+              "displayName": "run_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "intended_slot",
+              "displayName": "intended_slot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "started_at",
+              "displayName": "started_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "completed_at",
+              "displayName": "completed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "items_found",
+              "displayName": "items_found",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "items_new",
+              "displayName": "items_new",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "events_created",
+              "displayName": "events_created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "signals_selected",
+              "displayName": "signals_selected",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "error_summary",
+              "displayName": "error_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "claim_token",
+              "displayName": "claim_token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        144
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000018",
+      "name": "Finalize Radar Run"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "intended_slot",
+              "keyValue": "={{ $('Determine Due Slot').first().json.intended_slot }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -4928,
+        1728
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000019",
+      "name": "Load Existing Slot Run",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const slot = $('Determine Due Slot').first().json;\nconst old = $json || {};\nconst now = Date.now();\nconst staleAfter = 90 * 60 * 1000;\nconst minReclaim = 15 * 60 * 1000;\nconst started = Date.parse(old.started_at || '');\nconst completed = Date.parse(old.completed_at || '');\nconst status = String(old.status || '');\nif (status === 'success') return null;\nif (status === 'running' && Number.isFinite(started) && now - started < staleAfter) return null;\nif (['partial_success','failed','deferred'].includes(status) && Number.isFinite(completed) && now - completed < minReclaim) return null;\nconst nonce = `${now}_${Math.random().toString(36).slice(2,12)}`;\nreturn {json:{...slot,claim_token:nonce,recovery_reason:!status?'new_slot':`resume_${status}`,previous_run_id:old.run_id||''}};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4704,
+        1728
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000020",
+      "name": "Guard Active Run"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $json;\n\nconst title = String(item.title || '')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\nconst excerpt = String(item.excerpt || '')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\nconst url = String(\n  item.canonical_url ||\n  item.url ||\n  ''\n).trim();\n\nconst haystack =\n  `${title} ${excerpt}`.toLowerCase();\n\n\n// ----------------------------------\n// DEFAULT\n// ----------------------------------\n\nlet status = 'candidate';\nlet filterReason = '';\n\n\n// ----------------------------------\n// RULE 1:\n// BROKEN / LOW-INFORMATION RECORD\n// ----------------------------------\n\nif (!title) {\n  status = 'discarded';\n  filterReason = 'missing_title';\n}\n\nelse if (!url) {\n  status = 'discarded';\n  filterReason = 'missing_url';\n}\n\n\n// ----------------------------------\n// RULE 2:\n// RECRUITMENT / CAREER POSTS\n// ----------------------------------\n\nelse if (\n  /\\b(we'?re hiring|we are hiring|hiring now|job openings?|open roles?|careers at|join our team)\\b/i\n    .test(haystack)\n) {\n  status = 'discarded';\n  filterReason = 'recruitment';\n}\n\n\n// ----------------------------------\n// RULE 3:\n// EVENTS / WEBINAR PROMOTION\n// ----------------------------------\n\nelse if (\n  /\\b(register now|webinar|conference agenda|event recap|meet us at|watch the webinar|join us for the webinar)\\b/i\n    .test(haystack)\n) {\n  status = 'discarded';\n  filterReason = 'event_promotion';\n}\n\n\n// ----------------------------------\n// RULE 4:\n// ROUNDUPS / NEWSLETTER CONTENT\n// ----------------------------------\n\nelse if (\n  /\\b(weekly roundup|monthly roundup|week in review|newsletter|weekly digest|monthly digest)\\b/i\n    .test(haystack)\n) {\n  status = 'discarded';\n  filterReason = 'roundup_or_newsletter';\n}\n\n\n// ----------------------------------\n// RULE 5:\n// GENERIC \"TOP X\" SEO CONTENT\n// ----------------------------------\n\nelse if (\n  /\\b(top \\d+ (ai|crypto|web3|agent|agents|tools|tokens)|best \\d+ (ai|crypto|web3|tools|tokens))\\b/i\n    .test(title)\n) {\n  status = 'discarded';\n  filterReason = 'seo_listicle';\n}\n\n\n// ----------------------------------\n// RULE 6:\n// LOW-VALUE CRYPTO PRICE CONTENT\n// ----------------------------------\n\nelse if (\n  /\\b(price prediction|price analysis|technical analysis|top gainers?|top losers?|buy signal|sell signal|token price prediction)\\b/i\n    .test(haystack)\n) {\n  status = 'discarded';\n  filterReason = 'price_spam';\n}\n\n\n// ----------------------------------\n// RULE 7:\n// GIVEAWAY / CLAIM SPAM\n// ----------------------------------\n\nelse if (\n  /\\b(giveaway|whitelist giveaway|claim your airdrop|presale now|buy presale)\\b/i\n    .test(haystack)\n) {\n  status = 'discarded';\n  filterReason = 'promo_spam';\n}\n\n\n// ----------------------------------\n// OUTPUT\n// ----------------------------------\n\nreturn {\n  json: {\n    ...item,\n\n    status,\n\n    filter_reason:\n      filterReason,\n\n    filtered_at:\n      new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2688,
+        1296
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000021",
+      "name": "Cheap Junk Filter"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $json;\nconst knownAiSources = new Set(['openai_news', 'huggingface_blog']);\nconst item = {\n  ...original,\n  category: original.category || (knownAiSources.has(original.source_id) ? 'AI' : '')\n};\nif (!item.category) {\n  throw new Error(`Missing event category for source ${item.source_id || 'unknown'}`);\n}\n\n// Discarded items stop here.\n// They stay in radar_items for stats/debugging,\n// but they do not become Radar events.\nif (item.status !== 'candidate') {\n  return [];\n}\n\nfunction normalizeTitle(title) {\n  const stopWords = new Set([\n    'a', 'an', 'the',\n    'and', 'or', 'but',\n    'to', 'of', 'in', 'on',\n    'for', 'with', 'from',\n    'at', 'by', 'as',\n    'is', 'are', 'was', 'were',\n    'be', 'been', 'being',\n    'new', 'latest',\n    'announces', 'announced',\n    'launches', 'launched',\n    'releases', 'released',\n    'introduces', 'introduced'\n  ]);\n\n  return String(title || '')\n    .toLowerCase()\n    .replace(/https?:\\/\\/\\S+/g, ' ')\n    .replace(/[^a-z0-9\\s-]/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .split(' ')\n    .filter(word =>\n      word.length > 2 &&\n      !stopWords.has(word)\n    )\n    .sort()\n    .join(' ');\n}\n\nfunction stableHash64(input) {\n  let h1 = 2166136261;\n  let h2 = 2246822519;\n\n  for (let i = 0; i < input.length; i++) {\n    const c = input.charCodeAt(i);\n\n    h1 ^= c;\n    h1 = Math.imul(h1, 16777619);\n\n    h2 ^= c;\n    h2 = Math.imul(h2, 3266489917);\n  }\n\n  return (\n    (h1 >>> 0).toString(16).padStart(8, '0') +\n    (h2 >>> 0).toString(16).padStart(8, '0')\n  );\n}\n\nconst fingerprint =\n  normalizeTitle(item.title);\n\nconst eventUid =\n  stableHash64(\n    `${item.category}|${fingerprint}`\n  );\n\nreturn {\n  json: {\n    ...item,\n\n    event_uid: eventUid,\n\n    title_fingerprint:\n      fingerprint,\n\n    event_first_seen_at:\n      new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2240,
+        608
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000022",
+      "name": "Prepare Event Candidate"
+    },
+    {
+      "parameters": {
+        "operation": "rowExists",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_uid",
+              "keyValue": "={{ $json.event_uid }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -1344,
+        432
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000023",
+      "name": "Does Exact Event Exist?"
+    },
+    {
+      "parameters": {
+        "operation": "rowNotExists",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_uid",
+              "keyValue": "={{ $json.event_uid }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -2016,
+        720
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000024",
+      "name": "Is New Event?"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_uid",
+              "keyValue": "={{ $json.event_uid }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "event_uid": "={{ $json.event_uid }}",
+            "canonical_title": "={{ $json.title }}",
+            "title_fingerprint": "={{ $json.title_fingerprint }}",
+            "category": "={{ $json.category }}",
+            "first_seen_at": "={{ $json.event_first_seen_at }}",
+            "last_seen_at": "={{ $json.event_first_seen_at }}",
+            "source_count": 1,
+            "primary_source_url": "={{ $json.canonical_url }}",
+            "status": "candidate",
+            "delivery_status": "not_selected"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "event_uid",
+              "displayName": "event_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "canonical_title",
+              "displayName": "canonical_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "first_seen_at",
+              "displayName": "first_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_seen_at",
+              "displayName": "last_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "primary_source_url",
+              "displayName": "primary_source_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source_count",
+              "displayName": "source_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "what_happened",
+              "displayName": "what_happened",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "why_it_matters",
+              "displayName": "why_it_matters",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "radar_reason",
+              "displayName": "radar_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "delivery_status",
+              "displayName": "delivery_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title_fingerprint",
+              "displayName": "title_fingerprint",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -896,
+        800
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000025",
+      "name": "Create Radar Event"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const candidate =\n  $('Prepare Event Candidate')\n    .itemMatching(0)\n    .json;\n\nconst existing = $json;\n\nreturn {\n  json: {\n    item_uid: candidate.item_uid,\n\n    event_uid: existing.event_uid,\n\n    last_seen_at:\n      new Date().toISOString(),\n\n    source_count:\n      Number(existing.source_count || 1) + 1\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        432
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000026",
+      "name": "Prepare Existing Event Update"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_uid",
+              "keyValue": "={{ $json.event_uid }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "last_seen_at": "={{ $json.last_seen_at }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "event_uid",
+              "displayName": "event_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "canonical_title",
+              "displayName": "canonical_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "first_seen_at",
+              "displayName": "first_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_seen_at",
+              "displayName": "last_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "primary_source_url",
+              "displayName": "primary_source_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source_count",
+              "displayName": "source_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "what_happened",
+              "displayName": "what_happened",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "why_it_matters",
+              "displayName": "why_it_matters",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "radar_reason",
+              "displayName": "radar_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "delivery_status",
+              "displayName": "delivery_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title_fingerprint",
+              "displayName": "title_fingerprint",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -896,
+        528
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000027",
+      "name": "Update Existing Event"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "item_uid",
+              "keyValue": "={{ $('Prepare Event Candidate').itemMatching(0).json.item_uid }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "event_uid": "={{ $json.event_uid }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "item_uid",
+              "displayName": "item_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source_id",
+              "displayName": "source_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "canonical_url",
+              "displayName": "canonical_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "excerpt",
+              "displayName": "excerpt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "published_at",
+              "displayName": "published_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "fetched_at",
+              "displayName": "fetched_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "content_hash",
+              "displayName": "content_hash",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "event_uid",
+              "displayName": "event_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "filter_reason",
+              "displayName": "filter_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "filtered_at",
+              "displayName": "filtered_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -672,
+        800
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000028",
+      "name": "Link New Item To Event"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "item_uid",
+              "keyValue": "={{ $('Prepare Event Candidate').itemMatching(0).json.item_uid }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "event_uid": "={{ $json.event_uid }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "item_uid",
+              "displayName": "item_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source_id",
+              "displayName": "source_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "canonical_url",
+              "displayName": "canonical_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "excerpt",
+              "displayName": "excerpt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "published_at",
+              "displayName": "published_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "fetched_at",
+              "displayName": "fetched_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "content_hash",
+              "displayName": "content_hash",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "event_uid",
+              "displayName": "event_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "filter_reason",
+              "displayName": "filter_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "filtered_at",
+              "displayName": "filtered_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -672,
+        528
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000029",
+      "name": "Link Existing Item To Event"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -1792,
+        720
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000030",
+      "name": "Load Recent Events",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Live comparison only. Temporary test-mode forcing has been removed.\nconst candidate = $('Is New Event?').itemMatching(0).json;\nif (!candidate?.event_uid) { throw new Error('Could not resolve current event candidate'); }\nconst recentEvents = $input.all().map(item => item.json).filter(event => event?.event_uid);\n\n// NORMAL FUZZY MATCHING\n// ------------------------------------\n\nconst RECENT_WINDOW_HOURS = 48;\n\nfunction getTokens(text) {\n  const stopWords = new Set([\n    'the', 'and', 'for', 'with',\n    'from', 'that', 'this', 'into',\n    'about', 'new', 'launch',\n    'launches', 'launched',\n    'release', 'releases', 'released',\n    'announce', 'announces', 'announced',\n    'introduce', 'introduces', 'introduced'\n  ]);\n\n  return new Set(\n    String(text || '')\n      .toLowerCase()\n      .replace(/[^a-z0-9\\s-]/g, ' ')\n      .replace(/\\s+/g, ' ')\n      .trim()\n      .split(' ')\n      .filter(word =>\n        word.length > 2 &&\n        !stopWords.has(word)\n      )\n  );\n}\n\nfunction compareTitles(aText, bText) {\n  const a = getTokens(aText);\n  const b = getTokens(bText);\n\n  if (!a.size || !b.size) {\n    return {\n      shared: 0,\n      jaccard: 0,\n      overlap: 0,\n      score: 0\n    };\n  }\n\n  let shared = 0;\n\n  for (const token of a) {\n    if (b.has(token)) shared++;\n  }\n\n  const unionSize = a.size + b.size - shared;\n  const minSize = Math.min(a.size, b.size);\n\n  const jaccard = shared / unionSize;\n  const overlap = shared / minSize;\n\n  return {\n    shared,\n    jaccard,\n    overlap,\n    score: (jaccard * 0.55) + (overlap * 0.45)\n  };\n}\n\nconst candidateText =\n  candidate.title_fingerprint ||\n  candidate.title ||\n  '';\n\nconst candidateUrl =\n  candidate.canonical_url ||\n  candidate.url ||\n  '';\n\nconst now = Date.now();\n\nlet bestMatch = null;\n\nfor (const event of recentEvents) {\n\n  if (\n    candidate.category &&\n    event.category &&\n    candidate.category !== event.category\n  ) {\n    continue;\n  }\n\n  const eventTime = new Date(\n    event.last_seen_at ||\n    event.first_seen_at ||\n    0\n  ).getTime();\n\n  if (!Number.isFinite(eventTime)) {\n    continue;\n  }\n\n  const ageHours =\n    (now - eventTime) / 3600000;\n\n  if (\n    ageHours < 0 ||\n    ageHours > RECENT_WINDOW_HOURS\n  ) {\n    continue;\n  }\n\n  const eventUrl =\n    event.primary_source_url || '';\n\n  if (\n    candidateUrl &&\n    eventUrl &&\n    candidateUrl === eventUrl\n  ) {\n    bestMatch = {\n      event,\n      similarity: 1,\n      shared_tokens: 999,\n      match_reason: 'same_url'\n    };\n\n    break;\n  }\n\n  const eventText =\n    event.title_fingerprint ||\n    event.canonical_title ||\n    '';\n\n  const comparison = compareTitles(\n    candidateText,\n    eventText\n  );\n\n  const qualifies =\n    comparison.shared >= 3 &&\n    (\n      comparison.jaccard >= 0.50 ||\n      comparison.overlap >= 0.70\n    );\n\n  if (!qualifies) continue;\n\n  if (\n    !bestMatch ||\n    comparison.score > bestMatch.similarity\n  ) {\n    bestMatch = {\n      event,\n      similarity: comparison.score,\n      shared_tokens: comparison.shared,\n      match_reason: 'title_similarity'\n    };\n  }\n}\n\n// ------------------------------------\n// FINAL OUTPUT\n// ------------------------------------\n\nif (bestMatch) {\n  return [{\n    json: {\n      ...candidate,\n\n      fuzzy_match_found: true,\n\n      matched_event_uid:\n        bestMatch.event.event_uid,\n\n      matched_event_title:\n        bestMatch.event.canonical_title || '',\n\n      matched_event_source_count:\n        Number(bestMatch.event.source_count || 1),\n\n      fuzzy_similarity:\n        Number(bestMatch.similarity.toFixed(4)),\n\n      shared_tokens:\n        bestMatch.shared_tokens,\n\n      match_reason:\n        bestMatch.match_reason\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...candidate,\n\n    fuzzy_match_found: false,\n\n    matched_event_uid: '',\n    matched_event_title: '',\n    matched_event_source_count: 0,\n\n    fuzzy_similarity: 0,\n    shared_tokens: 0,\n    match_reason: 'none'\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        720
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000031",
+      "name": "Find Fuzzy Event Match"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0b279acc-ed18-4013-a22a-aacb19b9414b",
+              "leftValue": "={{ $json.fuzzy_match_found }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1344,
+        720
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000032",
+      "name": "Fuzzy Match Found?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $json;\n\nif (!item.matched_event_uid) {\n  throw new Error(\n    'Fuzzy match was true but matched_event_uid is missing'\n  );\n}\n\nreturn {\n  json: {\n    item_uid: item.item_uid,\n\n    event_uid: item.matched_event_uid,\n\n    last_seen_at:\n      new Date().toISOString(),\n\n    source_count:\n      Number(\n        item.matched_event_source_count || 1\n      ) + 1\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        624
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000033",
+      "name": "Prepare Fuzzy Existing Event Update"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "candidate"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -3136,
+        752
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000034",
+      "name": "Load Pending Event Items",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const completedSources = $input.all();\n\nreturn [\n  {\n    json: {\n      stage: 'event_processing',\n      sources_completed: completedSources.length,\n      started_at: new Date().toISOString()\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3360,
+        752
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000035",
+      "name": "Start Event Processing"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst inputItems = $input.all();\n\nconst pending = [];\n\nfor (let i = 0; i < inputItems.length; i++) {\n  const item = inputItems[i].json;\n\n  // Only process genuine candidates.\n  if (item.status !== 'candidate') {\n    continue;\n  }\n\n  // Already linked to an event?\n  if (String(item.event_uid ?? '').trim()) {\n    continue;\n  }\n\n  // A candidate must have a persistent item ID.\n  if (!item.item_uid) {\n    throw new Error(\n      'Pending candidate is missing item_uid'\n    );\n  }\n\n  pending.push({\n    item,\n    inputIndex: i\n  });\n}\n\n// No unprocessed candidates.\n// Return one control item so the workflow\n// can continue to its completion path.\nif (pending.length === 0) {\n  return [{\n    json: {\n      has_pending_items: false,\n      pending_count: 0,\n      stage: 'no_pending_events'\n    }\n  }];\n}\n\n// Return only candidates awaiting event processing.\nreturn pending.map(({ item, inputIndex }) => ({\n  json: {\n    ...item,\n    has_pending_items: true,\n    pending_count: pending.length\n  },\n  pairedItem: {\n    item: inputIndex\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2912,
+        752
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000036",
+      "name": "Select Unlinked Candidates"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4899e0a3-2af1-4a00-9d0c-6510077aedcd",
+              "leftValue": "={{ $json.has_pending_items }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2688,
+        752
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000037",
+      "name": "Has Pending Items?"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -2464,
+        624
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000038",
+      "name": "Process Pending Events One by One"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_uid",
+              "keyValue": "={{ $json.event_uid }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -448,
+        608
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000039",
+      "name": "Load Linked Event Items",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\n\n// Keep only valid linked articles.\nconst articles = items\n  .map(item => item.json)\n  .filter(item =>\n    item.item_uid &&\n    item.event_uid\n  );\n\n// A successfully linked article should exist.\nif (articles.length === 0) {\n  throw new Error(\n    'No linked articles found for event source counting'\n  );\n}\n\n// Ensure every returned article belongs\n// to the same canonical event.\nconst eventIds = new Set(\n  articles.map(item => String(item.event_uid).trim())\n);\n\nif (eventIds.size !== 1) {\n  throw new Error(\n    'Source counting received articles from multiple events'\n  );\n}\n\n// Ensure no article is missing its source.\nif (articles.some(item => !String(item.source_id || '').trim())) {\n  throw new Error(\n    'A linked article is missing source_id'\n  );\n}\n\n// Count distinct reporting sources,\n// not articles or processing attempts.\nconst uniqueSources = new Set(\n  articles.map(item =>\n    String(item.source_id).trim()\n  )\n);\n\nconst eventUid = [...eventIds][0];\n\nreturn [\n  {\n    json: {\n      event_uid: eventUid,\n      source_count: uniqueSources.size,\n      linked_item_count: articles.length,\n      counted_at: new Date().toISOString()\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        608
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000040",
+      "name": "Count Distinct Event Sources"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6ad77605-0f81-4505-b98d-95ff20af8e44",
+              "leftValue": "={{ Boolean($json.item_uid) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2912,
+        1232
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000041",
+      "name": "Has Recent Articles?"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_uid",
+              "keyValue": "={{ $json.event_uid }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "source_count": "={{ $json.source_count }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "event_uid",
+              "displayName": "event_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "canonical_title",
+              "displayName": "canonical_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "first_seen_at",
+              "displayName": "first_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_seen_at",
+              "displayName": "last_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "primary_source_url",
+              "displayName": "primary_source_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source_count",
+              "displayName": "source_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "what_happened",
+              "displayName": "what_happened",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "why_it_matters",
+              "displayName": "why_it_matters",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "radar_reason",
+              "displayName": "radar_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "delivery_status",
+              "displayName": "delivery_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title_fingerprint",
+              "displayName": "title_fingerprint",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        672
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000042",
+      "name": "Persist Distinct Source Count"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.all();\nreturn [{json:{stage:'events_processed', input_count:results.length, done_at:new Date().toISOString()}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2240,
+        144
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000043",
+      "name": "Ready To Finalize Scan"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0d9be1d5-18d6-4c3a-aebc-8a43faf38c37",
+              "leftValue": "={{ !$json.next_retry_at || !Number.isFinite(Date.parse($json.next_retry_at)) || Date.parse($json.next_retry_at) <= Date.now() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -3808,
+        1424
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000044",
+      "name": "Is Source Retry Due"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst source = $input.first().json;\n\nif (!source.source_id) {\n  throw new Error('Skipped source has no source_id');\n}\n\nreturn [{\n  json: {\n    ...source,\n    source_outcome: 'skipped'\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3584,
+        1584
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000045",
+      "name": "Mark Skipped Source"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst source = $input.first().json;\n\nif (!source.source_id) {\n  throw new Error('Successful source has no source_id');\n}\n\nreturn [{\n  json: {\n    ...source,\n    source_outcome: 'success'\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1792,
+        1488
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000046",
+      "name": "Mark Successful Source"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst source = $input.first().json;\n\nif (!source.source_id) {\n  throw new Error('Failed source has no source_id');\n}\n\nreturn [{\n  json: {\n    ...source,\n    source_outcome: 'failed'\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2688,
+        1488
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000047",
+      "name": "Mark Failed Source"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(item => item.json);\nconst allowed = new Set(['success','failed','skipped']);\nconst bySource = new Map();\nfor (const row of rows) {\n  const id = String(row.source_id || '').trim();\n  const state = String(row.source_outcome || '').trim();\n  if (!id || !allowed.has(state)) throw new Error('Source loop did not return a valid (source_id, source_outcome) item');\n  if (bySource.has(id)) throw new Error(`Duplicate source outcome: ${id}`);\n  bySource.set(id,{state,error:String(row.last_error||'')});\n}\nconst expected = $('Load Enabled Sources').all().filter(x=>x.json?.source_id).length;\nif (!expected || expected !== bySource.size) throw new Error(`Source outcome mismatch: expected ${expected}, received ${bySource.size}`);\nconst vals=[...bySource.values()];\nconst succeeded=vals.filter(x=>x.state==='success').length;\nconst failed=vals.filter(x=>x.state==='failed').length;\nconst skipped=vals.filter(x=>x.state==='skipped').length;\nconst errors=[...bySource].filter(([id,v])=>v.state==='failed').map(([id,v])=>`${id}: ${v.error||'fetch failed'}`);\nreturn [{json:{sources_attempted:succeeded+failed,sources_succeeded:succeeded,sources_failed:failed,sources_skipped:skipped,source_error_summary:errors.join(' | ').slice(0,1000),outcomes:[...bySource].map(([source_id,v])=>({source_id,source_outcome:v.state})),stage:'sources_counted'}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3808,
+        752
+      ],
+      "id": "deadbeef-0000-4000-8000-000000000048",
+      "name": "Count Source Outcomes"
+    },
+    {
+      "parameters": {
+        "jsCode": "// EDIT THIS NODE after importing. No secrets belong in workflow JSON.\n// Telegram credential is selected on the Send Telegram Digest node separately.\nconst CFG = {\n  telegram_enabled: false,       // Set true only AFTER configuring a bot and chat ID.\n  telegram_chat_id: 'CONFIGURE_CHAT_ID',\n  openai_enabled: false,         // Optional; needs Bearer Auth credential on OpenAI Request.\n  openai_model: 'gpt-4.1-mini',\n  min_relevance_score: 40,\n  max_digest_items: 7\n};\nreturn $input.all().map(({json}) => ({json:{...json,...CFG}}));"
+      },
+      "id": "deadbeef-0000-4000-8000-000000000049",
+      "name": "Radar Runtime Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5376,
+        2048
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3245e0c8-7b9f-47c0-829f-d1642e3a3325",
+              "leftValue": "={{ $json.wake_type === 'heartbeat' && $json.telegram_enabled === true && $json.telegram_chat_id !== 'CONFIGURE_CHAT_ID' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000050",
+      "name": "Should Dispatch Pending Digests?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -5152,
+        2384
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "intended_slot",
+              "keyValue": "={{ $('Determine Due Slot').first().json.intended_slot }}"
+            },
+            {
+              "keyName": "claim_token",
+              "keyValue": "={{ $('Guard Active Run').first().json.claim_token }}"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "running"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sources_attempted": "={{ $json.sources_attempted }}",
+            "sources_succeeded": "={{ $json.sources_succeeded }}",
+            "sources_failed": "={{ $json.sources_failed }}",
+            "sources_skipped": "={{ $json.sources_skipped }}",
+            "error_summary": "={{ $json.source_error_summary }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "run_type",
+              "displayName": "run_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "intended_slot",
+              "displayName": "intended_slot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "started_at",
+              "displayName": "started_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "completed_at",
+              "displayName": "completed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "items_found",
+              "displayName": "items_found",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "items_new",
+              "displayName": "items_new",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "events_created",
+              "displayName": "events_created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "signals_selected",
+              "displayName": "signals_selected",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "error_summary",
+              "displayName": "error_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "claim_token",
+              "displayName": "claim_token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sources_attempted",
+              "displayName": "sources_attempted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "sources_succeeded",
+              "displayName": "sources_succeeded",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "sources_failed",
+              "displayName": "sources_failed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "sources_skipped",
+              "displayName": "sources_skipped",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000051",
+      "name": "Save Source Outcome Counts",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -3584,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "delivery_status",
+              "keyValue": "not_selected"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "candidate"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "deadbeef-0000-4000-8000-000000000052",
+      "name": "Load Relevance Candidates",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -1792,
+        144
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// RADAR RELEVANCE v2.2 — conservative, title-grounded security qualification.\n// Gate FIRST, rank SECOND. No funding or famous-company bonuses.\n// Event rows currently contain titles/URLs, not the full source excerpt.\n// Practical implications below are explicitly conditional, not claims of verified capabilities.\nconst cfg = $('Radar Runtime Config').first().json;\nconst now = Date.now();\nconst cutoff = now - 48 * 60 * 60 * 1000;\nconst events = [];\nconst rejected = [];\nlet considered = 0;\nconst clean = x => String(x ?? '').replace(/\\s+/g, ' ').trim();\nconst has = (t, r) => r.test(t);\n\nfunction qualify(title, category) {\n const t = title.toLowerCase();\n // High-priority exclusion: real news isn't automatically a useful builder signal.\n if (/\\b(raises?|raised|funding|fundraise|fundraising|valuation|valued at|investment round|series [a-f]|acquisition|acquires?|merger|buyout)\\b|\\bworth\\s*\\$|\\$\\s*\\d+(?:\\.\\d+)?\\s*(?:b|m|billion|million)\\s+(?:deal|funding|investment)/i.test(t)) return {reject:'funding_or_valuation'};\n if (/\\b(in talks|reportedly.*deal|compute deal|infrastructure deal|partnership talks|rumou?red deal|reportedly in discussions)\\b/i.test(t)) return {reject:'speculative_deal'};\n if (/\\b(price prediction|technical analysis|top gainers?|top losers?|sponsored|newsletter|roundup|webinar|giveaway)\\b/i.test(t)) return {reject:'low_value_content'};\n const change = /\\b(launch(?:es|ed|ing)?|release(?:s|d)?|ship(?:s|ped)?|introduc(?:e|es|ed|ing)|unveil(?:s|ed)?|debut(?:s|ed)?|roll(?:s|ed)? out|announc(?:e|es|ed)|add(?:s|ed)?|new|updat(?:e|es|ed)|now available|available|open.source|open.weight|support(?:s|ed)?|cuts?|reduces?|drops?|lower(?:s|ed)?|increas(?:e|es|ed)|deprecat(?:e|es|ed)|fix(?:es|ed)?|patch(?:es|ed)?|expands?|integrat(?:e|es|ed))\\b/i;\n const model = /\\b(models?|llms?|open[ -]source|open[ -]weight|model weights|embeddings?|reasoning models?|language models?|vision models?)\\b/i;\n const open = /\\b(open[ -]source|open[ -]weight|open models?|model weights|runs? (?:locally|on (?:a )?pc)|on pcs|self[ -]host(?:ed|ing)?)\\b/i;\n const pricing = /\\b(pricing|price cuts?|costs?|cheaper|free tier|per[- ]token|input tokens?|output tokens?|rate cuts?|discount(?:s|ed)?)\\b/i;\n const pricingChange = /\\b(cuts?|reduces?|drops?|lowers?|slashes?|new pricing|price cuts?|cheaper|increas(?:e|es|ed)|changes?|updated|introduces?)\\b/i;\n const api = /\\b(apis?|sdks?|endpoints?|rate limits?|context windows?|tool calling|function calling|structured outputs?|mcp|developer platforms?|batch api|inference api)\\b/i;\n const dev = /\\b(developer tools?|dev tools?|coding agents?|coding assistants?|claude code|codex|cursor|openrouter|mcp servers?|orchestrat(?:ion|ors?)|agent frameworks?|torchneuron|code editors?|cli tools?|coding tools?)\\b/i;\n const agent = /\\b(agents?|agentic|autonomous workflows?|multi[ -]agent|agent workflows?)\\b/i;\n // v2.2 security: demand an AI builder context AND evidence of an actual incident or concrete patch.\n // An opinion about hypothetical attacks does not qualify. Title-only -> cautious language.\n const aiBuilder = /\\b(ai|llms?|agents?|coding (?:tools?|assistants?|agents?)|developer tools?|dev tools?|api(?:s| keys?| tokens?| accounts?)?|open[ -]?code|opencode|claude code|cursor|codex|mcp|openai|anthropic|gemini|deepseek|openrouter|model providers?)\\b/i;\n const confirmedAttack = /\\b(?:hackers?|attackers?|cybercriminals?)\\s+(?:hit|attack(?:ed)?|breach(?:ed)?|compromis(?:ed|e)|hijack(?:ed)?|stole|steal|expos(?:ed|e)|leak(?:ed)?|exploited?)\\b|\\b(?:hacked|breached|compromised|hijacked|exploited|stolen|leaked)\\b|\\b(?:data|security) breach\\b/i;\n const concreteImpact = /\\b(?:api (?:keys?|tokens?|accounts?|credentials?|billing|spending|charges?|usage)|access tokens?|credentials?|accounts?|users?|developer accounts?|unauthori[sz]ed|charges?|spending|bill(?:ing)?|funds?|expos(?:ed|e)(?:\\s+keys?)?|leak(?:ed)?|stol(?:en|e)|disrupt(?:ion|ed)?|service outage|customer data)\\b/i;\n const patchedFlaw = /\\b(?:patch(?:es|ed)?|fix(?:es|ed)?|resolv(?:es|ed)?|closes?)\\b/i.test(t)\n   && /\\b(?:critical (?:security )?(?:flaw|bug|vulnerability)|vulnerabilit(?:y|ies)|zero[ -]day|security flaw|remote code execution|rce|credential leak|prompt injection flaw)\\b/i.test(t);\n const securityIncident = has(t,aiBuilder) && ((has(t,confirmedAttack) && has(t,concreteImpact)) || patchedFlaw);\n const spendOrKeys = /\\b(?:unauthori[sz]ed|(?:running|ran|racked?) up charges?|api (?:keys?|tokens?|accounts?|billing|spending|charges?|usage)|credentials?)\\b/i.test(t);\n const market = /\\b(bitcoin|btc|ethereum|eth|solana|stablecoin|crypto|digital assets?)\\b/i;\n const materialMarket = /\\b(etf inflows?|etf outflows?|record liquidations?|liquidations? (?:surge|spike)|regulator (?:approves?|bans?)|sec (?:approves?|rejects?)|major (?:hack|breach)|stablecoin depeg|depegs?)\\b/i;\n const aiCrypto = /\\b(ai|agent|model)\\b.*\\b(on[ -]chain|blockchain|crypto|web3)\\b|\\b(on[ -]chain|blockchain|crypto|web3)\\b.*\\b(ai|agent|model)\\b/i;\n const changed = has(t,change);\n // A quoted opinion or generic industry warning is not an actionable incident.\n if (/\\b(says?|argues?|predicts?|opinion|experts? (?:say|raving)|policy chief|won.t be an easy solution|like insider threats)\\b/i.test(t) && !(securityIncident || (has(t,model) && changed && /\\b(launch|releas|unveil|debut|introduc|shipp)\\b/i.test(t)))) return {reject:'commentary_without_actionable_change'};\n let kind='', reason='', why='', score=0;\n if (securityIncident) {\n   kind='agent_security'; score=85; reason='AI developer security incident or mitigation';\n   why=spendOrKeys\n     ? 'Reported AI tool security issue could expose credentials or cause unauthorized API spending; verify affected service, rotate exposed keys and review usage.'\n     : 'Reported security issue may affect AI development workflows; verify the affected service or versions and mitigation steps.';\n } else if (has(t,pricing) && has(t,pricingChange) && (has(t,api)||has(t,model)|| /\\b(inference|tokens?|claude|gpt|gemini|deepseek|glm)\\b/i.test(t))) {\n   kind='api_pricing'; score=88; reason='API or inference pricing change';\n   why='Could change the cost of running AI workflows; compare new prices with your actual token usage.';\n } else if (has(t,model) && changed) {\n   kind=has(t,open)?'open_model':'model_release'; score=has(t,open)?86:82;\n   reason=has(t,open)?'Open model / capability release':'Model or capability release';\n   why=has(t,open)\n     ? (/(?:on pcs?|locally|on (?:a )?pc)/i.test(t) ? 'Could expand options for agent workflows on PCs; verify weights, hardware requirements and benchmarks.' : 'Could offer self-hosted inference options; verify available weights, licensing, hardware needs and benchmarks.')\n     : 'Worth evaluating for coding or reasoning quality, latency, API availability and cost.';\n } else if (has(t,api) && changed) {\n   kind='api_change'; score=81; reason='API / integration change';\n   why='May change how your AI workflows integrate with models; check availability, compatibility and migration needs.';\n } else if (has(t,dev) && changed) {\n   kind='developer_tool'; score=79; reason='New developer or coding-agent tool';\n   why='Could improve how you build or deploy AI systems; check integrations, supported environments and real-world performance.';\n } else if (has(t,agent) && changed) {\n   kind='agent_capability'; score=78; reason='New agent capability';\n   why='Could expand practical automation options; test permissions, reliability and integrations before adopting it.';\n\n } else if (has(t,market) && has(t,materialMarket)) {\n   kind='crypto_market'; score=76; reason='Significant crypto market event';\n   why='May affect crypto liquidity or risk; verify the reported figures and the broader market context.';\n } else if (has(t,aiCrypto) && changed) {\n   kind='ai_crypto'; score=76; reason='AI × crypto product or infrastructure';\n   why='Potential on-chain agent or AI infrastructure development; check the working product, adoption and technical constraints.';\n } else {\n   return {reject:'no_concrete_builder_relevance'};\n }\n if (has(t,open) && kind==='open_model') score+=3;\n return {kind,reason,why,score};\n}\n\nfor (const item of $input.all()) {\n const e = item.json || {};\n if (!e.event_uid || !e.canonical_title || e.delivery_status !== 'not_selected') continue;\n const seen = Date.parse(e.last_seen_at || e.first_seen_at || '');\n if (!Number.isFinite(seen) || seen < cutoff || seen > now + 5*60000) continue;\n const title=clean(e.canonical_title);\n const url=clean(e.primary_source_url);\n if (!/^https?:\\/\\//i.test(url) || /example\\.com|radar-test|internal test/i.test(`${url} ${title}`)) continue;\n considered++;\n const q=qualify(title,clean(e.category));\n if (q.reject) {\n   if (rejected.length < 60) rejected.push({event_uid:String(e.event_uid),title,reason:q.reject});\n   continue;\n }\n const sources=Math.max(1,Number(e.source_count)||1);\n const ageHours=(now-seen)/3600000;\n const score=Math.min(100,q.score + Math.min(6,Math.max(0,sources-1)*3) + (ageHours<=24?4:0));\n events.push({event_uid:String(e.event_uid),title,url,category:clean(e.category)||'AI',source_count:sources,score,reason:q.reason,why_it_matters:q.why,relevance_type:q.kind,seen_at:e.last_seen_at||e.first_seen_at});\n}\nevents.sort((a,b)=>b.score-a.score || String(b.seen_at).localeCompare(String(a.seen_at)));\nreturn [{json:{events:events.slice(0,35),considered_count:considered,filtered_count:considered-events.length,rejected_events:rejected,config:{telegram_enabled:cfg.telegram_enabled,telegram_chat_id:cfg.telegram_chat_id,openai_enabled:cfg.openai_enabled,openai_model:cfg.openai_model,min_relevance_score:cfg.min_relevance_score,max_digest_items:cfg.max_digest_items}}}];"
+      },
+      "id": "deadbeef-0000-4000-8000-000000000053",
+      "name": "Prepare Relevance Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "18658690-e443-4934-a9e5-10e35982ebce",
+              "leftValue": "={{ $json.config.openai_enabled === true && $json.events.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000054",
+      "name": "Use OpenAI Scoring?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1344,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({model:$json.config.openai_model,messages:[{role:'system',content:'You triage AI, crypto, and AI x crypto updates for a builder. The local relevance gate has already selected builder-useful AI and crypto developments. Score only these eligible events 0-100 based on concrete novelty, engineering impact, evidence and immediacy. Never add events, claim facts not in the titles, or reward company fame or funding. Reply as JSON with scores array of {event_uid,score}.'},{role:'user',content:JSON.stringify($json.events.map(e=>({event_uid:e.event_uid,title:e.title,category:e.category,source_count:e.source_count,base_score:e.score})))}],response_format:{type:'json_object'},temperature:0.2}) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "deadbeef-0000-4000-8000-000000000055",
+      "name": "OpenAI Relevance Request — OPTIONAL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1120,
+        80
+      ],
+      "onError": "continueRegularOutput",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// RADAR RELEVANCE v2.2 — preserve familiar Telegram layout, upgrade reasoning.\nconst batch=$('Prepare Relevance Batch').first().json;\nconst cfg=batch.config;\nconst base=batch.events||[];\nconst incoming=$input.first()?.json||{};\nlet overrides=[];\ntry {\n const raw=incoming.choices?.[0]?.message?.content;\n const parsed=raw?JSON.parse(raw):{};\n if(Array.isArray(parsed.scores))overrides=parsed.scores;\n} catch {}\nconst scoreMap=new Map(overrides.filter(x=>typeof x.event_uid==='string' && Number.isFinite(Number(x.score))).map(x=>[x.event_uid,x]));\n// AI may adjust ranking modestly but cannot resurrect an event rejected by the deterministic gate.\n// Use title-grounded practical implications even if optional AI output gives a generic rationale.\nconst ranked=base.map(e=>{\n const ai=scoreMap.get(e.event_uid);\n const proposed=ai?Math.max(0,Math.min(100,Math.round(Number(ai.score)))):e.score;\n const score=ai?Math.max(0,Math.min(100,Math.max(e.score-15,Math.min(e.score+15,proposed)))):e.score;\n return {...e,score};\n}).sort((a,b)=>b.score-a.score || String(b.seen_at).localeCompare(String(a.seen_at)));\nconst max=Math.max(1,Math.min(7,Number(cfg.max_digest_items||7)));\nconst selected=ranked.filter(e=>e.score>=Number(cfg.min_relevance_score||40)).slice(0,max);\nconst slot=$('Determine Due Slot').first().json.intended_slot;\nconst lines=[`ZINITOH RADAR | ${slot.slice(0,16).replace('T',' ')} WAT`,`Signals: ${selected.length} | Sources are linked for independent verification`,''];\nselected.forEach((e,i)=>{\n lines.push(`${i+1}. [${e.category}] ${e.title.slice(0,180)}`);\n lines.push(`   Why it matters: ${e.why_it_matters} | ${e.source_count} reporting source(s)`);\n lines.push(`   ${e.url}`,'');\n});\nlines.push('Automated prioritization; verify primary sources before acting.');\nconst text=lines.join('\\n').slice(0,3900);\nconst shouldQueue=cfg.telegram_enabled === true && !!cfg.telegram_chat_id && cfg.telegram_chat_id !== 'CONFIGURE_CHAT_ID' && selected.length>0;\nreturn [{json:{should_queue:shouldQueue,digest_uid:`radar_${slot.replace(/[^0-9]/g,'')}`,run_slot:slot,digest_text:text,selected_events:selected,selected_count:selected.length,scored_count:ranked.length,considered_count:batch.considered_count??ranked.length,filtered_count:batch.filtered_count??0,rejected_events:batch.rejected_events||[],ranking_engine:scoreMap.size?'openai_with_local_gate':'local_relevance_gate_v2_2'}}];"
+      },
+      "id": "deadbeef-0000-4000-8000-000000000056",
+      "name": "Rank And Compose Radar Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f6332a54-cc7d-42b2-a673-aa851b119004",
+              "leftValue": "={{ $json.should_queue === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000057",
+      "name": "Queue Digest Enabled And Nonempty?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -672,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "digest_uid",
+              "keyValue": "={{ $('Rank And Compose Radar Digest').first().json.digest_uid }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "pending",
+            "created_at": "={{ $now.toISO() }}",
+            "attempts": 0,
+            "digest_uid": "={{   $('Rank And Compose Radar Digest').first().json.digest_uid }}",
+            "run_slot": "={{   $('Rank And Compose Radar Digest').first().json.run_slot }}",
+            "digest_text": "={{   $('Rank And Compose Radar Digest').first().json.digest_text }}",
+            "event_uids": "={{   JSON.stringify(     $('Rank And Compose Radar Digest')       .first()       .json.selected_events       .map(e => e.event_uid)   ) }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "digest_uid",
+              "displayName": "digest_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "run_slot",
+              "displayName": "run_slot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "digest_text",
+              "displayName": "digest_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "event_uids",
+              "displayName": "event_uids",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "attempts",
+              "displayName": "attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "next_retry_at",
+              "displayName": "next_retry_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_error",
+              "displayName": "last_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "telegram_message_id",
+              "displayName": "telegram_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000058",
+      "name": "Upsert Radar Digest Outbox",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "digest_uid",
+              "keyValue": "={{ $json.digest_uid }}"
+            }
+          ]
+        }
+      },
+      "id": "deadbeef-0000-4000-8000-000000000059",
+      "name": "Load Existing Digest For Slot",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -448,
+        80
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "663d3e5f-3797-4d49-b044-ab2b7afb0c89",
+              "leftValue": "={{ !!$json.digest_uid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000060",
+      "name": "Digest Already Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -224,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Persist actionable ranking rationale (no generic participant labels).\nconst digest=$('Rank And Compose Radar Digest').first().json;\nreturn (digest.selected_events||[]).map(e=>({json:{event_uid:e.event_uid,delivery_status:'queued',radar_reason:e.reason,why_it_matters:e.why_it_matters||'',what_happened:e.title}}));"
+      },
+      "id": "deadbeef-0000-4000-8000-000000000061",
+      "name": "Prepare Queued Event Updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_uid",
+              "keyValue": "={{ $json.event_uid }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "delivery_status": "queued",
+            "radar_reason": "={{ $json.radar_reason }}",
+            "why_it_matters": "={{ $json.why_it_matters }}",
+            "what_happened": "={{ $json.what_happened }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "event_uid",
+              "displayName": "event_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "canonical_title",
+              "displayName": "canonical_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "first_seen_at",
+              "displayName": "first_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_seen_at",
+              "displayName": "last_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "primary_source_url",
+              "displayName": "primary_source_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "source_count",
+              "displayName": "source_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "what_happened",
+              "displayName": "what_happened",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "why_it_matters",
+              "displayName": "why_it_matters",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "radar_reason",
+              "displayName": "radar_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "delivery_status",
+              "displayName": "delivery_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title_fingerprint",
+              "displayName": "title_fingerprint",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sources_attempted",
+              "displayName": "sources_attempted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sources_succeeded",
+              "displayName": "sources_succeeded",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sources_failed",
+              "displayName": "sources_failed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sources_skipped",
+              "displayName": "sources_skipped",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "claim_token",
+              "displayName": "claim_token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000062",
+      "name": "Mark Selected Events Queued",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{json:{queued:true}}];"
+      },
+      "id": "deadbeef-0000-4000-8000-000000000063",
+      "name": "Digest Queue Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "returnAll": true
+      },
+      "id": "deadbeef-0000-4000-8000-000000000064",
+      "name": "Load Pending Digest Outbox",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -4928,
+        2384
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const now=Date.now();\nconst out=[];\nfor(const {json:r} of $input.all()) {\n if(!r.digest_uid)continue;\n if(String(r.status)!=='pending')continue;\n const next=Date.parse(r.next_retry_at||'');\n if(Number.isFinite(next)&&next>now)continue;\n out.push({json:r});\n}\nreturn out.slice(0,10);"
+      },
+      "id": "deadbeef-0000-4000-8000-000000000065",
+      "name": "Select Due Pending Digests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4704,
+        2384
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000066",
+      "name": "Process Pending Digests One By One",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -4480,
+        2384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r=$input.first().json;\nreturn [{json:{digest_uid:r.digest_uid,digest_text:r.digest_text,attempts:Number(r.attempts||0)+1,chat_id:$('Radar Runtime Config').first().json.telegram_chat_id}}];"
+      },
+      "id": "deadbeef-0000-4000-8000-000000000067",
+      "name": "Prepare Digest Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4256,
+        2144
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "digest_uid",
+              "keyValue": "={{ $json.digest_uid }}"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "pending"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "sending",
+            "attempts": "={{ $json.attempts }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "digest_uid",
+              "displayName": "digest_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "run_slot",
+              "displayName": "run_slot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "digest_text",
+              "displayName": "digest_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "event_uids",
+              "displayName": "event_uids",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "attempts",
+              "displayName": "attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "next_retry_at",
+              "displayName": "next_retry_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_error",
+              "displayName": "last_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "telegram_message_id",
+              "displayName": "telegram_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000068",
+      "name": "Claim Pending Digest For Send",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -4032,
+        2144
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Radar Runtime Config').first().json.telegram_chat_id }}",
+        "text": "={{ $('Prepare Digest Send').itemMatching(0).json.digest_text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "deadbeef-0000-4000-8000-000000000069",
+      "name": "Send Telegram Digest — CONFIGURE CREDENTIAL",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -3808,
+        2144
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const result=$input.first().json;\nconst send=$('Prepare Digest Send').itemMatching(0).json;\nif(!result.message_id && !result.result?.message_id)throw new Error('Telegram success response had no message_id');\nreturn [{json:{digest_uid:send.digest_uid,telegram_message_id:String(result.message_id||result.result.message_id),sent_at:new Date().toISOString()}}];"
+      },
+      "id": "deadbeef-0000-4000-8000-000000000070",
+      "name": "Prepare Telegram Success Receipt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3584,
+        2048
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "digest_uid",
+              "keyValue": "={{ $json.digest_uid }}"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "sending"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "sent",
+            "sent_at": "={{ $json.sent_at }}",
+            "telegram_message_id": "={{ $json.telegram_message_id }}",
+            "last_error": ""
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "digest_uid",
+              "displayName": "digest_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "run_slot",
+              "displayName": "run_slot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "digest_text",
+              "displayName": "digest_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "event_uids",
+              "displayName": "event_uids",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "attempts",
+              "displayName": "attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "next_retry_at",
+              "displayName": "next_retry_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_error",
+              "displayName": "last_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "telegram_message_id",
+              "displayName": "telegram_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000071",
+      "name": "Mark Digest Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -3360,
+        2048
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const outbox=$input.first().json;\nconst ids=JSON.parse(outbox.event_uids||'[]');\nif(!Array.isArray(ids)||ids.length===0) throw new Error('Sent digest missing event_uids');\nreturn ids.map(event_uid=>({json:{event_uid,delivery_status:'sent'}}));"
+      },
+      "id": "deadbeef-0000-4000-8000-000000000072",
+      "name": "Prepare Sent Event Updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3136,
+        2048
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "event_uid",
+              "keyValue": "={{ $json.event_uid }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "delivery_status": "sent"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "event_uid",
+              "displayName": "event_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "canonical_title",
+              "displayName": "canonical_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "first_seen_at",
+              "displayName": "first_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_seen_at",
+              "displayName": "last_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "primary_source_url",
+              "displayName": "primary_source_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "source_count",
+              "displayName": "source_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "what_happened",
+              "displayName": "what_happened",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "why_it_matters",
+              "displayName": "why_it_matters",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "radar_reason",
+              "displayName": "radar_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "delivery_status",
+              "displayName": "delivery_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title_fingerprint",
+              "displayName": "title_fingerprint",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sources_attempted",
+              "displayName": "sources_attempted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sources_succeeded",
+              "displayName": "sources_succeeded",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sources_failed",
+              "displayName": "sources_failed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sources_skipped",
+              "displayName": "sources_skipped",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "claim_token",
+              "displayName": "claim_token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000073",
+      "name": "Mark Digest Events Delivered",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -2912,
+        2048
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{json:{done:true}}];"
+      },
+      "id": "deadbeef-0000-4000-8000-000000000074",
+      "name": "Delivered Events Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2688,
+        2208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const send=$('Prepare Digest Send').itemMatching(0).json;\nconst error=$input.first()?.json||{};\nconst attempts=Number(send.attempts||1);\nconst waitMinutes=attempts<2?15:(attempts<4?60:180);\nconst msg=error.error?.message||error.message||JSON.stringify(error.error||error);\nreturn [{json:{digest_uid:send.digest_uid,attempts,next_retry_at:new Date(Date.now()+waitMinutes*60000).toISOString(),last_error:String(msg).slice(0,600)}}];"
+      },
+      "id": "deadbeef-0000-4000-8000-000000000075",
+      "name": "Prepare Telegram Failure Retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3584,
+        2240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "digest_uid",
+              "keyValue": "={{ $json.digest_uid }}"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "sending"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "pending",
+            "next_retry_at": "={{ $json.next_retry_at }}",
+            "attempts": "={{ $json.attempts }}",
+            "last_error": "={{ $json.last_error }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "digest_uid",
+              "displayName": "digest_uid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "run_slot",
+              "displayName": "run_slot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "digest_text",
+              "displayName": "digest_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "event_uids",
+              "displayName": "event_uids",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "attempts",
+              "displayName": "attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "next_retry_at",
+              "displayName": "next_retry_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_error",
+              "displayName": "last_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "telegram_message_id",
+              "displayName": "telegram_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "deadbeef-0000-4000-8000-000000000076",
+      "name": "Record Telegram Failure",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -3360,
+        2240
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "RADAR SCAN SLOTS": {
+      "main": [
+        [
+          {
+            "node": "Scheduled Wake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RECOVERY HEARTBEAT": {
+      "main": [
+        [
+          {
+            "node": "Recovery Wake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scheduled Wake": {
+      "main": [
+        [
+          {
+            "node": "Radar Runtime Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recovery Wake": {
+      "main": [
+        [
+          {
+            "node": "Radar Runtime Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Due Slot": {
+      "main": [
+        [
+          {
+            "node": "Load Existing Slot Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Scan": {
+      "main": [
+        [
+          {
+            "node": "Load Enabled Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Enabled Sources": {
+      "main": [
+        [
+          {
+            "node": "Process Sources One by One",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Catch-up Window": {
+      "main": [
+        [
+          {
+            "node": "Fetch RSS Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch RSS Source": {
+      "main": [
+        [
+          {
+            "node": "Normalize + Window Filter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Source Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize + Window Filter": {
+      "main": [
+        [
+          {
+            "node": "Has Recent Articles?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Source Fetch Succeeded": {
+      "main": [
+        [
+          {
+            "node": "Update Source Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Source Failure": {
+      "main": [
+        [
+          {
+            "node": "Update Source Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Sources One by One": {
+      "main": [
+        [
+          {
+            "node": "Count Source Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Source Retry Due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Source Success": {
+      "main": [
+        [
+          {
+            "node": "Mark Successful Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Source Failure": {
+      "main": [
+        [
+          {
+            "node": "Mark Failed Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Claimed Run Still Running?": {
+      "main": [
+        [
+          {
+            "node": "Load Relevance Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Existing Slot Run": {
+      "main": [
+        [
+          {
+            "node": "Guard Active Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard Active Run": {
+      "main": [
+        [
+          {
+            "node": "Claim Scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cheap Junk Filter": {
+      "main": [
+        [
+          {
+            "node": "Save New Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save New Item": {
+      "main": [
+        [
+          {
+            "node": "Source Fetch Succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Event Candidate": {
+      "main": [
+        [
+          {
+            "node": "Does Exact Event Exist?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is New Event?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New Event?": {
+      "main": [
+        [
+          {
+            "node": "Load Recent Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Does Exact Event Exist?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Existing Event Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Existing Event Update": {
+      "main": [
+        [
+          {
+            "node": "Update Existing Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Radar Event": {
+      "main": [
+        [
+          {
+            "node": "Link New Item To Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Recent Events": {
+      "main": [
+        [
+          {
+            "node": "Find Fuzzy Event Match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Fuzzy Event Match": {
+      "main": [
+        [
+          {
+            "node": "Fuzzy Match Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fuzzy Match Found?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Fuzzy Existing Event Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Radar Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Fuzzy Existing Event Update": {
+      "main": [
+        [
+          {
+            "node": "Update Existing Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Event Processing": {
+      "main": [
+        [
+          {
+            "node": "Load Pending Event Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Pending Event Items": {
+      "main": [
+        [
+          {
+            "node": "Select Unlinked Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Unlinked Candidates": {
+      "main": [
+        [
+          {
+            "node": "Has Pending Items?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Pending Items?": {
+      "main": [
+        [
+          {
+            "node": "Process Pending Events One by One",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ready To Finalize Scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Pending Events One by One": {
+      "main": [
+        [
+          {
+            "node": "Ready To Finalize Scan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Event Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Link New Item To Event": {
+      "main": [
+        [
+          {
+            "node": "Load Linked Event Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Existing Event": {
+      "main": [
+        [
+          {
+            "node": "Link Existing Item To Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Link Existing Item To Event": {
+      "main": [
+        [
+          {
+            "node": "Load Linked Event Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Linked Event Items": {
+      "main": [
+        [
+          {
+            "node": "Count Distinct Event Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Recent Articles?": {
+      "main": [
+        [
+          {
+            "node": "Cheap Junk Filter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Source Fetch Succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count Distinct Event Sources": {
+      "main": [
+        [
+          {
+            "node": "Persist Distinct Source Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist Distinct Source Count": {
+      "main": [
+        [
+          {
+            "node": "Process Pending Events One by One",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ready To Finalize Scan": {
+      "main": [
+        [
+          {
+            "node": "Is Claimed Run Still Running?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Source Retry Due": {
+      "main": [
+        [
+          {
+            "node": "Calculate Catch-up Window",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Skipped Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Skipped Source": {
+      "main": [
+        [
+          {
+            "node": "Process Sources One by One",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Successful Source": {
+      "main": [
+        [
+          {
+            "node": "Process Sources One by One",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Failed Source": {
+      "main": [
+        [
+          {
+            "node": "Process Sources One by One",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Radar Runtime Config": {
+      "main": [
+        [
+          {
+            "node": "Determine Due Slot",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Should Dispatch Pending Digests?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count Source Outcomes": {
+      "main": [
+        [
+          {
+            "node": "Save Source Outcome Counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Source Outcome Counts": {
+      "main": [
+        [
+          {
+            "node": "Start Event Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Relevance Candidates": {
+      "main": [
+        [
+          {
+            "node": "Prepare Relevance Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Relevance Batch": {
+      "main": [
+        [
+          {
+            "node": "Use OpenAI Scoring?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use OpenAI Scoring?": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Relevance Request — OPTIONAL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rank And Compose Radar Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Relevance Request — OPTIONAL": {
+      "main": [
+        [
+          {
+            "node": "Rank And Compose Radar Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rank And Compose Radar Digest": {
+      "main": [
+        [
+          {
+            "node": "Queue Digest Enabled And Nonempty?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue Digest Enabled And Nonempty?": {
+      "main": [
+        [
+          {
+            "node": "Load Existing Digest For Slot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize Radar Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Existing Digest For Slot": {
+      "main": [
+        [
+          {
+            "node": "Digest Already Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest Already Exists?": {
+      "main": [
+        [
+          {
+            "node": "Finalize Radar Run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Upsert Radar Digest Outbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Radar Digest Outbox": {
+      "main": [
+        [
+          {
+            "node": "Prepare Queued Event Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Queued Event Updates": {
+      "main": [
+        [
+          {
+            "node": "Mark Selected Events Queued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Selected Events Queued": {
+      "main": [
+        [
+          {
+            "node": "Digest Queue Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest Queue Complete": {
+      "main": [
+        [
+          {
+            "node": "Finalize Radar Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Dispatch Pending Digests?": {
+      "main": [
+        [
+          {
+            "node": "Load Pending Digest Outbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Pending Digest Outbox": {
+      "main": [
+        [
+          {
+            "node": "Select Due Pending Digests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Due Pending Digests": {
+      "main": [
+        [
+          {
+            "node": "Process Pending Digests One By One",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Pending Digests One By One": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Prepare Digest Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Digest Send": {
+      "main": [
+        [
+          {
+            "node": "Claim Pending Digest For Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Pending Digest For Send": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Digest — CONFIGURE CREDENTIAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Digest — CONFIGURE CREDENTIAL": {
+      "main": [
+        [
+          {
+            "node": "Prepare Telegram Success Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Telegram Failure Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Telegram Success Receipt": {
+      "main": [
+        [
+          {
+            "node": "Mark Digest Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Digest Sent": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sent Event Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sent Event Updates": {
+      "main": [
+        [
+          {
+            "node": "Mark Digest Events Delivered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Digest Events Delivered": {
+      "main": [
+        [
+          {
+            "node": "Delivered Events Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delivered Events Complete": {
+      "main": [
+        [
+          {
+            "node": "Process Pending Digests One By One",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Telegram Failure Retry": {
+      "main": [
+        [
+          {
+            "node": "Record Telegram Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Telegram Failure": {
+      "main": [
+        [
+          {
+            "node": "Process Pending Digests One By One",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timezone": "Africa/Lagos"
+  },
+  "tags": []
+}
