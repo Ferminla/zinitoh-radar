@@ -1,0 +1,10 @@
+ZINITOH RADAR | YYYY-MM-DD HH:MM WAT
+Signals: N | Sources are linked for independent verification
+
+1. [AI] <Relevant headline from an RSS source>
+   Why it matters: <Practical, builder-focused rationale> | 1 reporting source(s)
+   <Source URL>
+
+Automated prioritization; verify primary sources before acting.
+
+FORMAT EXAMPLE ONLY — not actual news or a real sent message.
