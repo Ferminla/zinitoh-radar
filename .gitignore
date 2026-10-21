@@ -1,0 +1,12 @@
+# Never commit credentials, personal exports or local data
+*.private.json
+*_PRIVATE*.json
+*PRIVATE_TEST*.json
+.env
+.env.*
+!.env.example
+*.log
+*.sqlite
+.n8n/
+.DS_Store
+Thumbs.db
