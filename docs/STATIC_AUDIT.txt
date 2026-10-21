@@ -1,0 +1,11 @@
+RC3 v2.2 public template: static validation
+Nodes: 76
+Data Table nodes requiring selector binding: 28
+JavaScript Code node syntax checks (staging): 30; errors: 0
+Graph links and node names checked in staging
+Removed private instance IDs, credential references, original table/project IDs and chat ID from public template
+Inactive by default; Telegram enabled: false; OpenAI scoring enabled: false
+Optional OpenAI HTTP Request node: disabled to avoid missing credential blocker
+Workflow timezone: Africa/Lagos
+Clean install and actual n8n runtime execution of sanitized template: NOT YET TESTED
+MIT license included (c) 2026 Ferminla
